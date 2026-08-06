@@ -2,6 +2,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
+const pino = require('pino');
 const fs = require('fs');
 
 // Express Server (Keeps Render active)
@@ -33,7 +34,7 @@ const fullSystemInstruction = [
     knowledge ? `\n\n--- KNOWLEDGE BASE ---\n${knowledge}` : ''
 ].join('').trim();
 
-// Initialize Gemini AI with System Prompt & Web Search
+// Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash",
@@ -42,12 +43,12 @@ const model = genAI.getGenerativeModel({
 });
 
 async function startBot() {
-    // Saves session data across server restarts
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true
+        logger: pino({ level: 'silent' }), // 🤫 Silences noisy background logs
+        printQRInTerminal: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -55,9 +56,11 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Displays QR code directly in server logs
+        // Print clean QR code
         if (qr) {
-            console.log('\n--- SCAN THIS QR CODE WITH WHATSAPP ---\n');
+            console.log('\n======================================');
+            console.log('--- SCAN THIS QR CODE WITH WHATSAPP ---');
+            console.log('======================================\n');
             qrcode.generate(qr, { small: true });
         }
 
@@ -68,7 +71,7 @@ async function startBot() {
                 startBot();
             }
         } else if (connection === 'open') {
-            console.log('Quix is live on WhatsApp! 🚀✨');
+            console.log('\n🚀 Quix is live on WhatsApp! 🚀\n');
         }
     });
 
@@ -76,18 +79,15 @@ async function startBot() {
         if (type !== 'notify') return;
 
         for (const msg of messages) {
-            // Ignore bot's own messages and status updates
             if (msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') continue;
 
             const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
             if (!text) continue;
 
             try {
-                // Generate answer with Gemini
                 const result = await model.generateContent(text);
                 const responseText = result.response.text();
 
-                // Send reply
                 await sock.sendMessage(msg.key.remoteJid, { text: responseText }, { quoted: msg });
             } catch (error) {
                 console.error('Error handling message:', error);
