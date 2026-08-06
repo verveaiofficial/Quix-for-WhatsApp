@@ -13,6 +13,137 @@ const PORT = process.env.PORT || 8080;
 let latestQR = null;
 let isConnected = false;
 
+// Supabase Cloud Storage Details
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jjxdsfacsotgibzcgvrn.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_2tXd0mJuMskR9zsrGvMSYw_IwWaEKsl';
+
+const BufferJSON = baileys.BufferJSON || {
+    replacer: (k, value) => {
+        if (Buffer.isBuffer(value) || value instanceof Uint8Array || value?.type === 'Buffer') {
+            return { type: 'Buffer', data: Buffer.from(value?.data || value).toString('base64') };
+        }
+        return value;
+    },
+    reviver: (k, value) => {
+        if (typeof value === 'object' && value !== null && (value.buffer === true || value.type === 'Buffer')) {
+            const val = value.data || value.value;
+            return typeof val === 'string' ? Buffer.from(val, 'base64') : Buffer.from(val || []);
+        }
+        return value;
+    }
+};
+
+async function useSupabaseAuthState() {
+    const logger = pino({ level: 'silent' });
+
+    const fetchSupabase = async (endpoint, options = {}) => {
+        const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
+        const defaultHeaders = {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json'
+        };
+        options.headers = { ...defaultHeaders, ...(options.headers || {}) };
+        return await fetch(url, options);
+    };
+
+    const readData = async (id) => {
+        try {
+            const res = await fetchSupabase(`wa_auth?id=eq.${encodeURIComponent(id)}&select=data`);
+            if (!res.ok) return null;
+            const rows = await res.json();
+            if (Array.isArray(rows) && rows.length > 0 && rows[0].data) {
+                return JSON.parse(JSON.stringify(rows[0].data), BufferJSON.reviver);
+            }
+            return null;
+        } catch (e) {
+            console.error('Supabase read error:', e.message || e);
+            return null;
+        }
+    };
+
+    const writeData = async (id, data) => {
+        try {
+            await fetchSupabase('wa_auth', {
+                method: 'POST',
+                headers: { 'Prefer': 'resolution=merge-duplicates' },
+                body: JSON.stringify({
+                    id,
+                    data: JSON.parse(JSON.stringify(data, BufferJSON.replacer))
+                })
+            });
+        } catch (e) {
+            console.error('Supabase write error:', e.message || e);
+        }
+    };
+
+    const removeData = async (id) => {
+        try {
+            await fetchSupabase(`wa_auth?id=eq.${encodeURIComponent(id)}`, {
+                method: 'DELETE'
+            });
+        } catch (e) {
+            console.error('Supabase delete error:', e.message || e);
+        }
+    };
+
+    const clearAllData = async () => {
+        try {
+            await fetchSupabase('wa_auth?id=neq.none', {
+                method: 'DELETE'
+            });
+        } catch (e) {
+            console.error('Supabase clear error:', e.message || e);
+        }
+    };
+
+    const creds = (await readData('creds')) || (baileys.initAuthCreds ? baileys.initAuthCreds() : {});
+
+    const keys = {
+        get: async (type, ids) => {
+            const data = {};
+            await Promise.all(
+                ids.map(async (id) => {
+                    let value = await readData(`${type}-${id}`);
+                    if (value && type === 'app-state-sync-key' && baileys.proto) {
+                        value = baileys.proto.Message.AppStateSyncKeyData.fromObject(value);
+                    }
+                    data[id] = value;
+                })
+            );
+            return data;
+        },
+        set: async (data) => {
+            const tasks = [];
+            for (const category in data) {
+                for (const id in data[category]) {
+                    const value = data[category][id];
+                    const key = `${category}-${id}`;
+                    if (value) {
+                        tasks.push(writeData(key, value));
+                    } else {
+                        tasks.push(removeData(key));
+                    }
+                }
+            }
+            await Promise.all(tasks);
+        }
+    };
+
+    return {
+        state: {
+            creds,
+            keys: baileys.makeCacheableSignalKeyStore ? baileys.makeCacheableSignalKeyStore(keys, logger) : keys
+        },
+        saveCreds: async () => {
+            await writeData('creds', creds);
+        },
+        clearSession: async () => {
+            await clearAllData();
+        }
+    };
+}
+
 app.get('/', async (req, res) => {
     if (isConnected) {
         return res.send(`
@@ -108,7 +239,7 @@ const model = genAI.getGenerativeModel({
 });
 
 async function startBot() {
-    const { state, saveCreds } = await baileys.useMultiFileAuthState('auth_info_baileys');
+    const { state, saveCreds, clearSession } = await useSupabaseAuthState();
     const { version } = await baileys.fetchLatestBaileysVersion();
 
     const sock = baileys.default({
@@ -125,7 +256,7 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
@@ -143,10 +274,8 @@ async function startBot() {
             console.log(`Connection closed (${statusCode || 'Unknown'}). Reconnecting...`);
 
             if (statusCode === baileys.DisconnectReason.loggedOut) {
-                console.log('Device logged out. Clearing old auth files for a fresh QR...');
-                try {
-                    fs.rmSync('auth_info_baileys', { recursive: true, force: true });
-                } catch (e) {}
+                console.log('Device logged out. Clearing Supabase session...');
+                await clearSession();
             }
 
             if (shouldReconnect) {
@@ -157,7 +286,7 @@ async function startBot() {
         } else if (connection === 'open') {
             isConnected = true;
             latestQR = null;
-            console.log('\n🚀 Quix is live on WhatsApp! 🚀\n');
+            console.log('\n🚀 Quix is live on WhatsApp (Backed by Supabase)! 🚀\n');
         }
     });
 
