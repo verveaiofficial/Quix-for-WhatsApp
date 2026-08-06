@@ -31,7 +31,7 @@ app.get('/', async (req, res) => {
                 <head>
                     <title>Quix WhatsApp Setup</title>
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <meta http-equiv="refresh" content="10">
+                    <meta http-equiv="refresh" content="15">
                     <style>
                         body { background: #0f172a; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
                         .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -44,7 +44,7 @@ app.get('/', async (req, res) => {
                         <h2>Scan QR Code with WhatsApp</h2>
                         <p>WhatsApp > Linked Devices > Link a Device</p>
                         <img src="${qrImage}" alt="WhatsApp QR Code" />
-                        <p style="margin-top: 15px;">Refreshing code every 10 seconds...</p>
+                        <p style="margin-top: 15px;">Refreshing code every 15 seconds...</p>
                     </div>
                 </body>
                 </html>
@@ -117,7 +117,8 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         browser: ['Chrome (Linux)', 'Chrome', '120.0.0.0'],
-        connectTimeoutMs: 60000,
+        connectTimeoutMs: 120000, // Increased timeout to 2 minutes
+        qrTimeout: 120000,        // Give plenty of time to scan
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 15000
     });
