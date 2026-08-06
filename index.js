@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
@@ -45,11 +45,16 @@ const model = genAI.getGenerativeModel({
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
+    // Fetch the latest WhatsApp Web version to bypass 405 error
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    console.log(`Connecting with WhatsApp Web v${version.join('.')}`);
+
     const sock = makeWASocket({
+        version,
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.ubuntu('Chrome'), // Identifies as Chrome to prevent instant drops
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000
@@ -75,7 +80,7 @@ async function startBot() {
             console.log(`Connection closed (${statusCode || 'Unknown'}). Reconnecting in 5s...`);
 
             if (shouldReconnect) {
-                setTimeout(startBot, 5000); // 5-second wait prevents rapid loop blocks
+                setTimeout(startBot, 5000);
             }
         } else if (connection === 'open') {
             console.log('\n🚀 Quix is live on WhatsApp! 🚀\n');
