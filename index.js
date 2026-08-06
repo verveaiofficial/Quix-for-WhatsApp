@@ -2,8 +2,9 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
+const fs = require('fs');
 
-// Express Server (Keeps Render alive)
+// Express Server (Keeps Render active)
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -15,15 +16,33 @@ app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
-// Initialize Gemini AI
+// Helper function to load text files safely
+function loadFile(filePath) {
+    if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, 'utf8');
+    }
+    return '';
+}
+
+// Load instructions and knowledge base
+const instructions = loadFile('instructions.txt');
+const knowledge = loadFile('knowledge.txt');
+
+const fullSystemInstruction = [
+    instructions,
+    knowledge ? `\n\n--- KNOWLEDGE BASE ---\n${knowledge}` : ''
+].join('').trim();
+
+// Initialize Gemini AI with System Prompt & Web Search
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash",
+    systemInstruction: fullSystemInstruction || "You are Quix, a brilliant, witty, and helpful AI assistant.",
     tools: [{ googleSearch: {} }]
 });
 
 async function startBot() {
-    // Saves session data so you don't have to scan every restart
+    // Saves session data across server restarts
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
@@ -36,7 +55,7 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Displays QR code in your server logs
+        // Displays QR code directly in server logs
         if (qr) {
             console.log('\n--- SCAN THIS QR CODE WITH WHATSAPP ---\n');
             qrcode.generate(qr, { small: true });
@@ -64,11 +83,11 @@ async function startBot() {
             if (!text) continue;
 
             try {
-                // Get answer from Gemini
+                // Generate answer with Gemini
                 const result = await model.generateContent(text);
                 const responseText = result.response.text();
 
-                // Send reply back to user
+                // Send reply
                 await sock.sendMessage(msg.key.remoteJid, { text: responseText }, { quoted: msg });
             } catch (error) {
                 console.error('Error handling message:', error);
