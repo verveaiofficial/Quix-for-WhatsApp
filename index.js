@@ -108,6 +108,7 @@ const model = genAI.getGenerativeModel({
 });
 
 async function startBot() {
+    // If render wiped the folder, this cleanly initializes a fresh state
     const { state, saveCreds } = await baileys.useMultiFileAuthState('auth_info_baileys');
     const { version } = await baileys.fetchLatestBaileysVersion();
 
@@ -130,6 +131,7 @@ async function startBot() {
 
         if (qr) {
             latestQR = qr;
+            isConnected = false;
             console.log('\n--- NEW QR GENERATED! VISIT YOUR RENDER URL TO SCAN ---');
             qrcodeTerminal.generate(qr, { small: true });
         }
@@ -141,8 +143,17 @@ async function startBot() {
 
             console.log(`Connection closed (${statusCode || 'Unknown'}). Reconnecting...`);
 
+            if (statusCode === baileys.DisconnectReason.loggedOut) {
+                console.log('Device logged out. Clearing old auth files for a fresh QR...');
+                try {
+                    fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                } catch (e) {}
+            }
+
             if (shouldReconnect) {
                 setTimeout(startBot, 3000);
+            } else {
+                setTimeout(startBot, 5000);
             }
         } else if (connection === 'open') {
             isConnected = true;
