@@ -1,14 +1,4 @@
-const sock = baileys.default({
-        version,
-        auth: state,
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: false,
-        browser: ['Chrome (Linux)', 'Chrome', '120.0.0.0'],
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 10000, // Pings WhatsApp servers every 10 seconds to prevent idle drops
-        emitOwnEvents: false,
-        markOnlineOnConnect: true
-    }); baileys = require('@whiskeysockets/baileys');
+const baileys = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const qrcodeTerminal = require('qrcode-terminal');
 const QRCode = require('qrcode');
@@ -118,7 +108,6 @@ const model = genAI.getGenerativeModel({
 });
 
 async function startBot() {
-    // If render wiped the folder, this cleanly initializes a fresh state
     const { state, saveCreds } = await baileys.useMultiFileAuthState('auth_info_baileys');
     const { version } = await baileys.fetchLatestBaileysVersion();
 
@@ -128,10 +117,10 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         browser: ['Chrome (Linux)', 'Chrome', '120.0.0.0'],
-        connectTimeoutMs: 120000,
-        qrTimeout: 120000,
-        defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 15000
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 10000,
+        emitOwnEvents: false,
+        markOnlineOnConnect: true
     });
 
     sock.ev.on('creds.update', saveCreds);
