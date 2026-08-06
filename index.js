@@ -85,7 +85,7 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey || "");
 const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
+    model: "gemini-2.5-flash",
     systemInstruction: fullSystemInstruction || "You are Quix, a brilliant, witty, and helpful AI assistant."
 });
 
@@ -147,7 +147,7 @@ async function startBot() {
 
                 await sock.sendMessage(msg.key.remoteJid, { text: responseText }, { quoted: msg });
             } catch (error) {
-                console.error('Error handling message:', error);
+                console.error('Detailed error handling message:', error);
                 await sock.sendMessage(msg.key.remoteJid, { text: "Having a little glitch processing that, try again in a sec!" }, { quoted: msg });
             }
         }
