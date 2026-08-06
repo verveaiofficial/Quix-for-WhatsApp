@@ -1,23 +1,67 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const qrcode = require('qrcode-terminal');
+const qrcodeTerminal = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const express = require('express');
 const pino = require('pino');
 const fs = require('fs');
 
-// Express Server (Keeps Render active)
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-app.get('/', (req, res) => {
-    res.send('Quix WhatsApp Bot is active!');
+let latestQR = null;
+let isConnected = false;
+
+// Web page serving the live QR Code
+app.get('/', async (req, res) => {
+    if (isConnected) {
+        return res.send(`
+            <div style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #0f172a; color: #fff; min-height: 100vh;">
+                <h1 style="color: #4ade80;">🚀 Quix WhatsApp Bot is Active & Connected!</h1>
+            </div>
+        `);
+    }
+
+    if (latestQR) {
+        try {
+            const qrImage = await QRCode.toDataURL(latestQR);
+            return res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Quix WhatsApp Setup</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <style>
+                        body { background: #0f172a; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+                        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+                        img { border: 8px solid white; border-radius: 12px; margin-top: 1rem; width: 260px; height: 260px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <h2>Scan QR Code with WhatsApp</h2>
+                        <p>WhatsApp > Linked Devices > Link a Device</p>
+                        <img src="${qrImage}" alt="WhatsApp QR Code" />
+                    </div>
+                </body>
+                </html>
+            `);
+        } catch (err) {
+            return res.send('Error generating QR image');
+        }
+    }
+
+    res.send(`
+        <div style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #0f172a; color: #fff; min-height: 100vh;">
+            <h2>Starting up... Refresh this page in 5 seconds!</h2>
+        </div>
+    `);
 });
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
-// Helper function to load text files safely
 function loadFile(filePath) {
     if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath, 'utf8');
@@ -25,7 +69,6 @@ function loadFile(filePath) {
     return '';
 }
 
-// Load instructions and knowledge base
 const instructions = loadFile('instructions.txt');
 const knowledge = loadFile('knowledge.txt');
 
@@ -34,7 +77,6 @@ const fullSystemInstruction = [
     knowledge ? `\n\n--- KNOWLEDGE BASE ---\n${knowledge}` : ''
 ].join('').trim();
 
-// Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash",
@@ -44,10 +86,7 @@ const model = genAI.getGenerativeModel({
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-
-    // Fetch the latest WhatsApp Web version to bypass 405 error
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`Connecting with WhatsApp Web v${version.join('.')}`);
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
         version,
@@ -65,15 +104,14 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Print clean QR code
         if (qr) {
-            console.log('\n======================================');
-            console.log('--- SCAN THIS QR CODE WITH WHATSAPP ---');
-            console.log('======================================\n');
-            qrcode.generate(qr, { small: true });
+            latestQR = qr;
+            console.log('\n--- NEW QR GENERATED! VISIT YOUR RENDER URL TO SCAN ---');
+            qrcodeTerminal.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
+            isConnected = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -83,6 +121,8 @@ async function startBot() {
                 setTimeout(startBot, 5000);
             }
         } else if (connection === 'open') {
+            isConnected = true;
+            latestQR = null;
             console.log('\n🚀 Quix is live on WhatsApp! 🚀\n');
         }
     });
