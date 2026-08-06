@@ -103,7 +103,7 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey || "");
 const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: "gemini-1.5-flash",
     systemInstruction: fullSystemInstruction || "You are Quix, a brilliant, witty, and helpful AI assistant."
 });
 
@@ -160,18 +160,17 @@ async function startBot() {
             if (!text) continue;
 
             try {
-                // Generate content directly without problematic session states
                 const result = await model.generateContent(text);
                 const responseText = result.response.text();
 
                 if (responseText) {
                     await sock.sendMessage(msg.key.remoteJid, { text: responseText }, { quoted: msg });
                 } else {
-                    throw new Error("Empty response received from Gemini.");
+                    await sock.sendMessage(msg.key.remoteJid, { text: "Hmm, got an empty thought back. Try again!" }, { quoted: msg });
                 }
             } catch (error) {
-                console.error('❌ GEMINI API ERROR DETAILS:', error);
-                await sock.sendMessage(msg.key.remoteJid, { text: "Having a little glitch processing that, try again in a sec!" }, { quoted: msg });
+                console.error('❌ GEMINI API ERROR DETAILS:', error.message || error);
+                await sock.sendMessage(msg.key.remoteJid, { text: `Error: ${error.message || "Failed to process"}` }, { quoted: msg });
             }
         }
     });
