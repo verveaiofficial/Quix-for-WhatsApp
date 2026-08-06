@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
@@ -47,8 +47,12 @@ async function startBot() {
 
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }), // 🤫 Silences noisy background logs
-        printQRInTerminal: false
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: false,
+        browser: Browsers.ubuntu('Chrome'), // Identifies as Chrome to prevent instant drops
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 0,
+        keepAliveIntervalMs: 10000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -65,10 +69,13 @@ async function startBot() {
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log('Connection closed. Reconnecting...', shouldReconnect);
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+            console.log(`Connection closed (${statusCode || 'Unknown'}). Reconnecting in 5s...`);
+
             if (shouldReconnect) {
-                startBot();
+                setTimeout(startBot, 5000); // 5-second wait prevents rapid loop blocks
             }
         } else if (connection === 'open') {
             console.log('\n🚀 Quix is live on WhatsApp! 🚀\n');
